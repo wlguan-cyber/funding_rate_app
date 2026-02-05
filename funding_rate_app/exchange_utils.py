@@ -54,7 +54,9 @@ class HTTPClient:
         url = self.base_url + url_path
         request_headers = {**self.default_headers, **(headers or {})}
         
-        async with aiohttp.ClientSession() as session:
+        # Add a timeout to prevent hanging on Render
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(url, params=params, headers=request_headers) as response:
                 if response.status >= 400:
                     text = await response.text()
@@ -67,7 +69,9 @@ class HTTPClient:
         url = self.base_url + url_path
         request_headers = {**self.default_headers, **(headers or {})}
         
-        async with aiohttp.ClientSession() as session:
+        # Add a timeout to prevent hanging on Render
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, json=payload, headers=request_headers) as response:
                 if response.status >= 400:
                     text = await response.text()
@@ -342,6 +346,7 @@ class HyperliquidClient(BaseExchangeClient):
         
         # 1. Get Main Exchange instruments
         try:
+            # Use a slightly longer timeout or retry for Render
             response = await self.client.post("/info", {"type": "metaAndAssetCtxs"})
             if response and len(response) >= 1:
                 universe = response[0].get('universe', [])
@@ -355,28 +360,33 @@ class HyperliquidClient(BaseExchangeClient):
                 print(f"[HyperliquidClient] Found {len(universe)} main instruments.")
         except Exception as e:
             print(f"[HyperliquidClient] Error fetching main instruments: {e}")
+            # Fallback: if main fails, we might still want to try DEXs or vice versa
         
         # 2. Get DEX (HIP-3) instruments
         try:
             dexs_response = await self.client.post("/info", {"type": "perpDexs"})
             # perpDexs returns [None, {dex1}, {dex2}, ...]
             if dexs_response and isinstance(dexs_response, list):
+                # Filter out None and invalid entries
+                valid_dexs = [d for d in dexs_response if d and isinstance(d, dict) and d.get('name')]
+                
                 # Use asyncio.gather to fetch all DEX meta in parallel
                 dex_tasks = []
                 dex_names = []
-                for dex_info in dexs_response:
-                    if dex_info and isinstance(dex_info, dict):
-                        dex_name = dex_info.get('name')
-                        if dex_name:
-                            dex_names.append(dex_name)
-                            dex_tasks.append(self.client.post("/info", {
-                                "type": "metaAndAssetCtxs",
-                                "dex": dex_name
-                            }))
+                for dex_info in valid_dexs:
+                    dex_name = dex_info.get('name')
+                    dex_names.append(dex_name)
+                    dex_tasks.append(self.client.post("/info", {
+                        "type": "metaAndAssetCtxs",
+                        "dex": dex_name
+                    }))
                 
                 if dex_tasks:
                     print(f"[HyperliquidClient] Fetching meta for {len(dex_tasks)} DEXs...")
+                    # On some environments, too many parallel requests might be throttled
+                    # Let's use a smaller batch size if needed, but for now gather is fine
                     dex_metas = await asyncio.gather(*dex_tasks, return_exceptions=True)
+                    
                     for dex_name, dex_meta in zip(dex_names, dex_metas):
                         if isinstance(dex_meta, Exception):
                             print(f"[HyperliquidClient] Error fetching meta for DEX {dex_name}: {dex_meta}")
