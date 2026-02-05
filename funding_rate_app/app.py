@@ -212,7 +212,7 @@ def main():
     # -------------------------------------------------------------------------
     st.sidebar.divider()
 
-    if st.sidebar.button("🔍 Get Funding Rates", type="primary", use_container_width=True):
+    if st.sidebar.button("🔍 Get Funding Rates", type="primary", width="stretch"):
         all_data: Dict[str, pd.DataFrame] = {}
         
         # Progress bar
@@ -325,7 +325,7 @@ def main():
                 # Format for display
                 st.dataframe(
                     wide_df,
-                    use_container_width=True,
+                    width="stretch",
                 )
                 
                 # Download button
@@ -359,7 +359,7 @@ def main():
             
             if stats_data:
                 stats_df = pd.DataFrame(stats_data)
-                st.dataframe(stats_df, use_container_width=True, hide_index=True)
+                st.dataframe(stats_df, width="stretch", hide_index=True)
             else:
                 st.info("No statistics to display.")
 
